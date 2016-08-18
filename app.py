@@ -1,22 +1,101 @@
 from flask import Flask
+from flask import jsonify
+from flask import request
+from flask import Response
+from flask import json
+from flask import abort
+from flask import make_response
+from flask import g
+import sqlite3
 
 app = Flask(__name__)
 
-@app.route('/students', methods=['GET'])
-def get_students():
-	return 'Return GET students'
-	
-@app.route('/students', methods=['POST'])
-def post_students():
-	return 'Return POST students'
+DATABASE = 'database/database.db'
 
-@app.route('/students', methods=['PUT'])
-def put_students():
-	return 'Return PUT students'
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+    return db
 	
-@app.route('/students', methods=['DELETE'])
-def delete_students():
-	return 'Return DELETE students'
+# Run before every request
+@app.before_request
+def before_request():
+    g.db = get_db()
+
+# Run after every request
+@app.teardown_request
+def teardown_request(exception):
+    if hasattr(g, 'db'):
+        g.db.close()
+		
+@app.errorhandler(404)
+def not_found(error):
+	return make_response(jsonify({'error': 'Not found'}), 404)
+	
+# Get list of all students
+@app.route('/students/list', methods = ['GET'])
+def get_all_students():
+	query = 'SELECT * FROM students'
+	cur = g.db.execute(query)
+	list_students = cur.fetchall()
+	list = { "list_students" :[dict(id = row[0], name = row[1], phone = row[4], email = row[5]) for row in list_students]}
+	return jsonify(list)
+
+# Get a student by id
+@app.route('/students/search/<int:student_id>', methods = ['GET'])
+def get_a_student(student_id):
+	query = 'SELECT * FROM students WHERE id = ?'
+	cur = g.db.execute(query, (student_id,))
+	query_result = cur.fetchone()
+	if query_result is None:
+		return jsonify({'message': 'Student does not exist'})
+	student = {"id" : query_result[0], "name" : query_result[1], "phone" : query_result[4], "email" : query_result[5]}
+	return jsonify(student)
+	
+# Add a new student
+@app.route('/students/add', methods = ['POST'])
+def add_student():
+	new_student = {
+        'name': request.json['name'],
+        'phone': request.json['phone'],
+        'email': request.json['email'],
+    	'user_created': request.json['user_created']
+	}
+	query = 'INSERT INTO students(name, phone, email, user_created) values (?,?,?,?)'
+	cur = g.db.execute(query, (new_student['name'], new_student['email'], new_student['phone'], new_student['user_created']))
+	g.db.commit()
+	return jsonify({'message': 'Successfully add new student'})
+
+# Update a student record by id
+@app.route('/students/update/<int:student_id>', methods = ['PUT'])
+def put_students(student_id):
+	query = 'SELECT * FROM students WHERE id = ?'
+	update_student = {
+		'column' : request.json['column'],
+		'value' : request.json['value']
+	}
+	cur = g.db.execute(query, (student_id,))
+	query_result = cur.fetchone()
+	if query_result is None:
+		return jsonify({'message': 'Student does not exist'})
+	query_update = 'UPDATE students SET ' + update_student['column'] + '= ? WHERE id = ?'
+	g.db.execute(query_update, (update_student['value'],student_id,))
+	g.db.commit()
+	return jsonify({'message': 'Successfully update'})
+	
+# Delete a student record by id
+@app.route('/students/delete/<int:student_id>', methods = ['DELETE'])
+def delete_students(student_id):
+	query = 'SELECT * FROM students WHERE id = ?'
+	cur = g.db.execute(query, (student_id,))
+	query_result = cur.fetchone()
+	if query_result is None:
+		return jsonify({'message': 'Student does not exist'})
+	query_delete = 'DELETE FROM students WHERE id = ?'
+	g.db.execute(query_delete, (student_id,))
+	g.db.commit()
+	return jsonify({'message': 'Successfully delete'})
 	
 @app.route('/teachers', methods=['GET'])
 def get_teachers():
